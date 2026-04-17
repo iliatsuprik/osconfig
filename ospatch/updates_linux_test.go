@@ -27,17 +27,6 @@ import (
 	"github.com/golang/mock/gomock"
 )
 
-func createTempFile(t *testing.T) string {
-	t.Helper()
-	tmpFile, err := os.CreateTemp("", "reboot-required")
-	if err != nil {
-		t.Fatalf("Failed to create temp file: %v", err)
-	}
-	tmpFile.Close()
-	t.Cleanup(func() { os.Remove(tmpFile.Name()) })
-	return tmpFile.Name()
-}
-
 func setAptExists(t *testing.T, exists bool) {
 	t.Helper()
 	original := packages.AptExists
@@ -80,7 +69,7 @@ func TestSystemRebootRequiredApt(t *testing.T) {
 			desc: "reboot required when reboot file exists",
 			setup: func(t *testing.T) {
 				setAptExists(t, true)
-				setRebootRequiredFile(t, createTempFile(t))
+				setRebootRequiredFile(t, utiltest.CreateTempFile(t, "reboot-required"))
 			},
 			wantReboot: true,
 		},
@@ -126,7 +115,7 @@ func TestSystemRebootRequiredRpm(t *testing.T) {
 			desc: "rpm reboot check succeeds",
 			setup: func(t *testing.T) {
 				setAptExists(t, false)
-				setRpmquery(t, createTempFile(t))
+				setRpmquery(t, utiltest.CreateTempFile(t, "rpmquery"))
 
 				mockCommandRunner := utilmocks.NewMockCommandRunner(mockCtrl)
 				runner = mockCommandRunner

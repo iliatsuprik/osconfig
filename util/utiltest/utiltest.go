@@ -144,3 +144,16 @@ func OverrideVariable[T any](ptr *T, val T) func() {
 		*ptr = original
 	}
 }
+
+// CreateTempFile creates a temporary file with a given name pattern and returns its path.
+// It registers a cleanup function to remove the file when the test finishes.
+func CreateTempFile(t *testing.T, pattern string) string {
+	t.Helper()
+	tmpFile, err := os.CreateTemp("", pattern)
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	tmpFile.Close()
+	t.Cleanup(func() { os.Remove(tmpFile.Name()) })
+	return tmpFile.Name()
+}
