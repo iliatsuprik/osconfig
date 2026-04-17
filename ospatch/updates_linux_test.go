@@ -27,27 +27,6 @@ import (
 	"github.com/golang/mock/gomock"
 )
 
-func setAptExists(t *testing.T, exists bool) {
-	t.Helper()
-	original := packages.AptExists
-	packages.AptExists = exists
-	t.Cleanup(func() { packages.AptExists = original })
-}
-
-func setRebootRequiredFile(t *testing.T, path string) {
-	t.Helper()
-	original := rebootRequiredFile
-	rebootRequiredFile = path
-	t.Cleanup(func() { rebootRequiredFile = original })
-}
-
-func setRpmquery(t *testing.T, path string) {
-	t.Helper()
-	original := rpmquery
-	rpmquery = path
-	t.Cleanup(func() { rpmquery = original })
-}
-
 func TestSystemRebootRequiredApt(t *testing.T) {
 	ctx := context.Background()
 
@@ -60,24 +39,24 @@ func TestSystemRebootRequiredApt(t *testing.T) {
 		{
 			desc: "no reboot required when reboot file does not exist",
 			setup: func(t *testing.T) {
-				setAptExists(t, true)
-				setRebootRequiredFile(t, "/non_existing_reboot_file")
+				utiltest.OverrideVariable(t, &packages.AptExists, true)
+				utiltest.OverrideVariable(t, &rebootRequiredFile, "/non_existing_reboot_file")
 			},
 			wantReboot: false,
 		},
 		{
 			desc: "reboot required when reboot file exists",
 			setup: func(t *testing.T) {
-				setAptExists(t, true)
-				setRebootRequiredFile(t, utiltest.CreateTempFile(t, "reboot-required"))
+				utiltest.OverrideVariable(t, &packages.AptExists, true)
+				utiltest.OverrideVariable(t, &rebootRequiredFile, utiltest.CreateTempFile(t, "reboot-required"))
 			},
 			wantReboot: true,
 		},
 		{
 			desc: "file read error is propagated",
 			setup: func(t *testing.T) {
-				setAptExists(t, true)
-				setRebootRequiredFile(t, "/dev/null/invalid")
+				utiltest.OverrideVariable(t, &packages.AptExists, true)
+				utiltest.OverrideVariable(t, &rebootRequiredFile, "/dev/null/invalid")
 			},
 			wantReboot: false,
 			wantErr:    &os.PathError{Op: "open", Path: "/dev/null/invalid", Err: syscall.ENOTDIR},
@@ -98,10 +77,8 @@ func TestSystemRebootRequiredApt(t *testing.T) {
 
 func TestSystemRebootRequiredRpm(t *testing.T) {
 	ctx := context.Background()
-	originalRunner := runner
 	mockCtrl := gomock.NewController(t)
 	t.Cleanup(func() {
-		runner = originalRunner
 		mockCtrl.Finish()
 	})
 
@@ -114,8 +91,8 @@ func TestSystemRebootRequiredRpm(t *testing.T) {
 		{
 			desc: "rpm reboot check succeeds",
 			setup: func(t *testing.T) {
-				setAptExists(t, false)
-				setRpmquery(t, utiltest.CreateTempFile(t, "rpmquery"))
+				utiltest.OverrideVariable(t, &packages.AptExists, false)
+				utiltest.OverrideVariable(t, &rpmquery, utiltest.CreateTempFile(t, "rpmquery"))
 
 				mockCommandRunner := utilmocks.NewMockCommandRunner(mockCtrl)
 				runner = mockCommandRunner
@@ -126,8 +103,8 @@ func TestSystemRebootRequiredRpm(t *testing.T) {
 		{
 			desc: "unsupported package manager returns error",
 			setup: func(t *testing.T) {
-				setAptExists(t, false)
-				setRpmquery(t, "/non_existing_file")
+				utiltest.OverrideVariable(t, &packages.AptExists, false)
+				utiltest.OverrideVariable(t, &rpmquery, "/non_existing_file")
 			},
 			wantErr: errors.New("no recognized package manager installed, can't determine if reboot is required"),
 		},

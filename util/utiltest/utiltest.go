@@ -137,12 +137,12 @@ func AssertFileContents(t *testing.T, filePath string, wantContents string) {
 }
 
 // OverrideVariable overrides the value of a variable and returns a function to restore it.
-func OverrideVariable[T any](ptr *T, val T) func() {
+func OverrideVariable[T any](t *testing.T, ptr *T, val T) {
 	original := *ptr
 	*ptr = val
-	return func() {
+	t.Cleanup( func() {
 		*ptr = original
-	}
+	})
 }
 
 // CreateTempFile creates a temporary file with a given name pattern and returns its path.
