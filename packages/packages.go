@@ -106,6 +106,9 @@ type Packages struct {
 	COS                []*PkgInfo            `json:"cos,omitempty"`
 	Gem                []*PkgInfo            `json:"gem,omitempty"`
 	Pip                []*PkgInfo            `json:"pip,omitempty"`
+	Npm                []*PkgInfo            `json:"npm,omitempty"`
+	Maven              []*PkgInfo            `json:"maven,omitempty"`
+	Go                 []*PkgInfo            `json:"go,omitempty"`
 	GooGet             []*PkgInfo            `json:"googet,omitempty"`
 	WUA                []*WUAPackage         `json:"wua,omitempty"`
 	QFE                []*QFEPackage         `json:"qfe,omitempty"`
