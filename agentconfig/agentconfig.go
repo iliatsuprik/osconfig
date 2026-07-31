@@ -141,6 +141,9 @@ type config struct {
 	scalibrLinuxEnabled     bool
 	guestAttributesEnabled  bool
 	traceGetInventory       bool
+	extendedInventoryEnabled      bool
+	extendedInventoryCollectionInterval int
+	extendedInventoryExtractorsAllowed string
 }
 
 func (c *config) parseFeatures(features string, enabled bool) {
@@ -235,6 +238,9 @@ type attributesJSON struct {
 	EnableGuestAttributes string       `json:"enable-guest-attributes"`
 	TraceGetInventory     string       `json:"trace-get-inventory"`
 	ScalibrLinuxEnabled   string       `json:"enable-scalibr-linux"`
+	ExtendedInventoryEnabled            string       `json:"osconfig-extended-inventory-enabled"`
+	ExtendedInventoryCollectionInterval *json.Number `json:"osconfig-extended-inventory-collection-interval"`
+	ExtendedInventoryExtractorsAllowed  string       `json:"osconfig-extended-inventory-extractors-allowed"`
 }
 
 func createConfigFromMetadata(md metadataJSON) *config {
@@ -374,6 +380,32 @@ func createConfigFromMetadata(md metadataJSON) *config {
 	setScalibrEnablement(md, c)
 	setSVCEndpoint(md, c)
 	setTraceGetInventory(md, c)
+
+	if md.Project.Attributes.ExtendedInventoryEnabled != "" {
+		c.extendedInventoryEnabled = parseBool(md.Project.Attributes.ExtendedInventoryEnabled)
+	}
+	if md.Instance.Attributes.ExtendedInventoryEnabled != "" {
+		c.extendedInventoryEnabled = parseBool(md.Instance.Attributes.ExtendedInventoryEnabled)
+	}
+
+	if md.Project.Attributes.ExtendedInventoryCollectionInterval != nil {
+		if val, err := md.Project.Attributes.ExtendedInventoryCollectionInterval.Int64(); err == nil {
+			c.extendedInventoryCollectionInterval = int(val)
+		}
+	}
+	if md.Instance.Attributes.ExtendedInventoryCollectionInterval != nil {
+		if val, err := md.Instance.Attributes.ExtendedInventoryCollectionInterval.Int64(); err == nil {
+			c.extendedInventoryCollectionInterval = int(val)
+		}
+	}
+
+	if md.Project.Attributes.ExtendedInventoryExtractorsAllowed != "" {
+		c.extendedInventoryExtractorsAllowed = md.Project.Attributes.ExtendedInventoryExtractorsAllowed
+	}
+	if md.Instance.Attributes.ExtendedInventoryExtractorsAllowed != "" {
+		c.extendedInventoryExtractorsAllowed = md.Instance.Attributes.ExtendedInventoryExtractorsAllowed
+	}
+
 
 	return c
 }
@@ -832,4 +864,19 @@ func DisableCloudLogging() bool {
 // UniverseDomain is the cloud universe domain
 func UniverseDomain() string {
 	return getAgentConfig().universeDomain
+}
+
+// ExtendedInventoryEnabled indicates whether extended inventory is enabled.
+func ExtendedInventoryEnabled() bool {
+	return getAgentConfig().extendedInventoryEnabled
+}
+
+// ExtendedInventoryCollectionInterval returns the interval for extended inventory collection.
+func ExtendedInventoryCollectionInterval() int {
+	return getAgentConfig().extendedInventoryCollectionInterval
+}
+
+// ExtendedInventoryExtractorsAllowed returns the allowed extractors for extended inventory.
+func ExtendedInventoryExtractorsAllowed() string {
+	return getAgentConfig().extendedInventoryExtractorsAllowed
 }
