@@ -1,56 +1,47 @@
 //go:build e2e
 
+//  Copyright 2026 Google LLC
+//
+//  Licensed under the Apache License, Version 2.0 (the "License");
+//  you may not use this file except in compliance with the License.
+//  You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+//  Unless required by applicable law or agreed to in writing, software
+//  distributed under the License is distributed on an "AS IS" BASIS,
+//  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//  See the License for the specific language governing permissions and
+//  limitations under the License.
+
 package e2etests_test
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"testing"
 
 	"github.com/GoogleCloudPlatform/osconfig/e2e_tests_v2/internal/config"
-	"github.com/GoogleCloudPlatform/osconfig/e2e_tests_v2/internal/scenario"
 	"github.com/GoogleCloudPlatform/osconfig/e2e_tests_v2/internal/testenv"
 )
 
-var e2eSuite *testenv.Suite
-
 func TestMain(m *testing.M) {
-	config, err := config.LoadFromEnvironment()
+	cfg, err := config.LoadFromEnvironment()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "E2E configuration error: %v\n", err)
 		os.Exit(2)
 	}
-	suite, err := testenv.NewSuite(context.Background(), config)
-	if err != nil {
+
+	if err := testenv.Init(cfg); err != nil {
 		fmt.Fprintf(os.Stderr, "E2E initialization error: %v\n", err)
 		os.Exit(2)
 	}
-	e2eSuite = suite
+
 	code := m.Run()
-	if err := suite.Close(); err != nil {
-		fmt.Fprintf(os.Stderr, "close E2E clients: %v\n", err)
-		if code == 0 {
-			code = 1
-		}
+
+	if err := testenv.Close(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error writing JUnit report: %v\n", err)
 	}
+
 	os.Exit(code)
-}
-
-func runScenario(t *testing.T, testCase scenario.Case, body func(*testing.T, *testenv.Environment)) {
-	t.Helper()
-	t.Run(testCase.ID, func(t *testing.T) {
-		if !e2eSuite.Config.Categories[testCase.Category] {
-			t.Skipf("category %q disabled by run configuration", testCase.Category)
-		}
-		t.Parallel()
-		body(t, e2eSuite.NewEnvironment(t, testCase))
-	})
-}
-
-func expectedBootstrapVersion(testCase scenario.Case) string {
-	if testCase.Bootstrap == scenario.InstallDEB {
-		return e2eSuite.Config.DEBExpectedVersion
-	}
-	return e2eSuite.Config.RPMExpectedVersion
 }

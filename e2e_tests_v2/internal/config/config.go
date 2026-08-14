@@ -1,205 +1,143 @@
+//  Copyright 2026 Google LLC
+//
+//  Licensed under the Apache License, Version 2.0 (the "License");
+//  you may not use this file except in compliance with the License.
+//  You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+//  Unless required by applicable law or agreed to in writing, software
+//  distributed under the License is distributed on an "AS IS" BASIS,
+//  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//  See the License for the specific language governing permissions and
+//  limitations under the License.
+
+// Package config manages E2E test configuration.
 package config
 
 import (
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
-
-	"github.com/GoogleCloudPlatform/osconfig/e2e_tests_v2/internal/scenario"
 )
 
 const envConfigPath = "E2E_CONFIG"
 
-var sha256Pattern = regexp.MustCompile(`^[a-fA-F0-9]{64}$`)
-
-// Target is an isolated project/zone capacity allocation available to one test
-// process. Separate CI shards should receive disjoint targets or projects.
-type Target struct {
-	Project  string `json:"project"`
-	Zone     string `json:"zone"`
-	Capacity int    `json:"capacity"`
-}
-
-// Config contains run-level settings. Secrets are deliberately excluded; GCP
-// clients use Application Default Credentials.
+// Config contains runtime settings for E2E tests.
 type Config struct {
-	RunID              string
-	Targets            []Target
-	ImageManifest      string
-	ArtifactDir        string
-	Categories         map[scenario.Category]bool
-	TestTimeout        time.Duration
-	PollInterval       time.Duration
-	CleanupTimeout     time.Duration
-	MachineType        string
-	Network            string
-	ServiceAccount     string
-	EnableExternalIP   bool
-	DEBPackageURL      string
-	DEBPackageSHA256   string
-	DEBExpectedVersion string
-	RPMPackageURL      string
-	RPMPackageSHA256   string
-	RPMExpectedVersion string
-	RPMUpgradeFrom     string
-	OSConfigEndpoint   string
+	Project          string        `json:"project"`
+	Zone             string        `json:"zone"`
+	Network          string        `json:"network"`
+	Subnetwork       string        `json:"subnetwork,omitempty"`
+	ServiceAccount   string        `json:"service_account"`
+	TestTimeout      time.Duration `json:"test_timeout"`
+	PollInterval     time.Duration `json:"poll_interval"`
+	CleanupTimeout   time.Duration `json:"cleanup_timeout"`
+	MaxConcurrentVMs int           `json:"max_concurrent_vms"`
+	ArtifactDir      string        `json:"artifact_dir"`
+	JUnitFile        string        `json:"junit_file"`
 }
 
 type fileConfig struct {
-	RunID              string   `json:"run_id"`
-	Targets            []Target `json:"targets"`
-	ImageManifest      string   `json:"image_manifest"`
-	ArtifactDir        string   `json:"artifact_dir"`
-	Categories         string   `json:"categories"`
-	TestTimeout        string   `json:"test_timeout"`
-	PollInterval       string   `json:"poll_interval"`
-	CleanupTimeout     string   `json:"cleanup_timeout"`
-	MachineType        string   `json:"machine_type"`
-	Network            string   `json:"network"`
-	ServiceAccount     string   `json:"service_account"`
-	EnableExternalIP   *bool    `json:"enable_external_ip"`
-	DEBPackageURL      string   `json:"deb_package_url"`
-	DEBPackageSHA256   string   `json:"deb_package_sha256"`
-	DEBExpectedVersion string   `json:"deb_expected_version"`
-	RPMPackageURL      string   `json:"rpm_package_url"`
-	RPMPackageSHA256   string   `json:"rpm_package_sha256"`
-	RPMExpectedVersion string   `json:"rpm_expected_version"`
-	RPMUpgradeFrom     string   `json:"rpm_upgrade_from_version"`
-	OSConfigEndpoint   string   `json:"osconfig_endpoint"`
+	Project          string `json:"project"`
+	Zone             string `json:"zone"`
+	Network          string `json:"network"`
+	Subnetwork       string `json:"subnetwork"`
+	ServiceAccount   string `json:"service_account"`
+	TestTimeout      string `json:"test_timeout"`
+	PollInterval     string `json:"poll_interval"`
+	CleanupTimeout   string `json:"cleanup_timeout"`
+	MaxConcurrentVMs int    `json:"max_concurrent_vms"`
+	ArtifactDir      string `json:"artifact_dir"`
+	JUnitFile        string `json:"junit_file"`
 }
 
-// LoadFromEnvironment loads the path in E2E_CONFIG.
+// LoadFromEnvironment loads configuration from the file specified in E2E_CONFIG.
 func LoadFromEnvironment() (Config, error) {
 	path := strings.TrimSpace(os.Getenv(envConfigPath))
 	if path == "" {
-		return Config{}, fmt.Errorf("%s must point to a JSON run configuration", envConfigPath)
+		return Config{}, fmt.Errorf("%s must point to a JSON configuration file", envConfigPath)
 	}
 	return Load(path)
 }
 
-// Load reads and validates a JSON run configuration.
+// Load reads and validates a JSON configuration file.
 func Load(path string) (Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return Config{}, fmt.Errorf("read config %q: %w", path, err)
+		return Config{}, fmt.Errorf("read config file %q: %w", path, err)
 	}
 	var raw fileConfig
 	if err := json.Unmarshal(data, &raw); err != nil {
-		return Config{}, fmt.Errorf("parse config %q: %w", path, err)
+		return Config{}, fmt.Errorf("parse config file %q: %w", path, err)
 	}
 
-	baseDir := filepath.Dir(path)
-	if raw.ImageManifest != "" && !filepath.IsAbs(raw.ImageManifest) {
-		raw.ImageManifest = filepath.Join(baseDir, raw.ImageManifest)
-	}
-	if raw.ArtifactDir != "" && !filepath.IsAbs(raw.ArtifactDir) {
-		raw.ArtifactDir = filepath.Join(baseDir, raw.ArtifactDir)
+	project := strings.TrimSpace(raw.Project)
+	if project == "" {
+		return Config{}, fmt.Errorf("project is required in configuration")
 	}
 
-	categories, err := scenario.ParseCategories(raw.Categories)
-	if err != nil {
-		return Config{}, err
+	zone := strings.TrimSpace(raw.Zone)
+	if zone == "" {
+		return Config{}, fmt.Errorf("zone is required in configuration")
 	}
-	testTimeout, err := durationOrDefault(raw.TestTimeout, 60*time.Minute)
+
+	testTimeout, err := durationOrDefault(raw.TestTimeout, 5*time.Minute)
 	if err != nil {
-		return Config{}, fmt.Errorf("test_timeout: %w", err)
+		return Config{}, fmt.Errorf("invalid test_timeout: %w", err)
 	}
+
 	pollInterval, err := durationOrDefault(raw.PollInterval, 10*time.Second)
 	if err != nil {
-		return Config{}, fmt.Errorf("poll_interval: %w", err)
+		return Config{}, fmt.Errorf("invalid poll_interval: %w", err)
 	}
+
 	cleanupTimeout, err := durationOrDefault(raw.CleanupTimeout, 5*time.Minute)
 	if err != nil {
-		return Config{}, fmt.Errorf("cleanup_timeout: %w", err)
+		return Config{}, fmt.Errorf("invalid cleanup_timeout: %w", err)
 	}
 
-	config := Config{
-		RunID:              strings.TrimSpace(raw.RunID),
-		Targets:            raw.Targets,
-		ImageManifest:      raw.ImageManifest,
-		ArtifactDir:        raw.ArtifactDir,
-		Categories:         categories,
-		TestTimeout:        testTimeout,
-		PollInterval:       pollInterval,
-		CleanupTimeout:     cleanupTimeout,
-		MachineType:        valueOrDefault(raw.MachineType, "e2-standard-2"),
-		Network:            valueOrDefault(raw.Network, "global/networks/default"),
-		ServiceAccount:     valueOrDefault(raw.ServiceAccount, "default"),
-		EnableExternalIP:   raw.EnableExternalIP == nil || *raw.EnableExternalIP,
-		DEBPackageURL:      raw.DEBPackageURL,
-		DEBPackageSHA256:   raw.DEBPackageSHA256,
-		DEBExpectedVersion: strings.TrimSpace(raw.DEBExpectedVersion),
-		RPMPackageURL:      raw.RPMPackageURL,
-		RPMPackageSHA256:   raw.RPMPackageSHA256,
-		RPMExpectedVersion: strings.TrimSpace(raw.RPMExpectedVersion),
-		RPMUpgradeFrom:     strings.TrimSpace(raw.RPMUpgradeFrom),
-		OSConfigEndpoint:   raw.OSConfigEndpoint,
+	artifactDir := strings.TrimSpace(raw.ArtifactDir)
+	if artifactDir == "" {
+		artifactDir = filepath.Join(filepath.Dir(path), "artifacts")
+	} else if !filepath.IsAbs(artifactDir) {
+		artifactDir = filepath.Join(filepath.Dir(path), artifactDir)
 	}
-	if config.RunID == "" {
-		config.RunID = time.Now().UTC().Format("20060102t150405z")
+	junitFile := filepath.Join(artifactDir, "junit.xml")
+
+	maxVMs := raw.MaxConcurrentVMs
+	if maxVMs <= 0 {
+		return Config{}, fmt.Errorf("invalid max VMs amount: %v", maxVMs)
 	}
-	if config.ArtifactDir == "" {
-		config.ArtifactDir = filepath.Join(baseDir, "artifacts")
-	}
-	if err := validate(config); err != nil {
-		return Config{}, err
-	}
-	return config, nil
+
+	return Config{
+		Project:          project,
+		Zone:             zone,
+		Network:          valueOrDefault(raw.Network, "global/networks/default"),
+		Subnetwork:       strings.TrimSpace(raw.Subnetwork),
+		ServiceAccount:   valueOrDefault(raw.ServiceAccount, "default"),
+		TestTimeout:      testTimeout,
+		PollInterval:     pollInterval,
+		CleanupTimeout:   cleanupTimeout,
+		MaxConcurrentVMs: maxVMs,
+		ArtifactDir:      artifactDir,
+		JUnitFile:        junitFile,
+	}, nil
 }
 
-func validate(config Config) error {
-	if len(config.Targets) == 0 {
-		return fmt.Errorf("at least one target is required")
-	}
-	for i, target := range config.Targets {
-		if target.Project == "" || target.Zone == "" || target.Capacity <= 0 {
-			return fmt.Errorf("target %d must define project, zone, and positive capacity", i)
-		}
-	}
-	if strings.TrimSpace(config.ImageManifest) == "" {
-		return fmt.Errorf("image_manifest is required")
-	}
-	if config.PollInterval <= 0 || config.TestTimeout <= 0 || config.CleanupTimeout <= 0 {
-		return fmt.Errorf("timeouts and poll interval must be positive")
-	}
-	if err := validatePackage("deb", config.DEBPackageURL, config.DEBPackageSHA256); err != nil {
-		return err
-	}
-	if err := validatePackage("rpm", config.RPMPackageURL, config.RPMPackageSHA256); err != nil {
-		return err
-	}
-	return nil
-}
-
-func validatePackage(kind, rawURL, digest string) error {
-	if rawURL == "" && digest == "" {
-		return nil
-	}
-	parsed, err := url.Parse(rawURL)
-	if err != nil || parsed.Scheme != "https" || parsed.Host == "" {
-		return fmt.Errorf("%s_package_url must be an HTTPS URL", kind)
-	}
-	if !sha256Pattern.MatchString(digest) {
-		return fmt.Errorf("%s_package_sha256 must contain 64 hexadecimal characters", kind)
-	}
-	return nil
-}
-
-func durationOrDefault(value string, fallback time.Duration) (time.Duration, error) {
-	if strings.TrimSpace(value) == "" {
+func durationOrDefault(val string, fallback time.Duration) (time.Duration, error) {
+	if strings.TrimSpace(val) == "" {
 		return fallback, nil
 	}
-	return time.ParseDuration(value)
+	return time.ParseDuration(val)
 }
 
-func valueOrDefault(value, fallback string) string {
-	if strings.TrimSpace(value) == "" {
+func valueOrDefault(val, fallback string) string {
+	if strings.TrimSpace(val) == "" {
 		return fallback
 	}
-	return value
+	return strings.TrimSpace(val)
 }

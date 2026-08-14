@@ -1,48 +1,50 @@
+//  Copyright 2026 Google LLC
+//
+//  Licensed under the Apache License, Version 2.0 (the "License");
+//  you may not use this file except in compliance with the License.
+//  You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+//  Unless required by applicable law or agreed to in writing, software
+//  distributed under the License is distributed on an "AS IS" BASIS,
+//  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//  See the License for the specific language governing permissions and
+//  limitations under the License.
+
+// Package scheduler limits concurrent VM allocations across tests.
 package scheduler
 
 import (
 	"context"
 	"fmt"
 	"sync"
-
-	"github.com/GoogleCloudPlatform/osconfig/e2e_tests_v2/internal/config"
 )
 
-// Scheduler provides context-aware bounded project/zone admission. CI shards
-// should receive disjoint target sets when cross-process isolation is needed.
+// Scheduler limits concurrent running test VMs.
 type Scheduler struct {
-	available chan config.Target
+	tokens chan struct{}
 }
 
-// New creates one token per configured target capacity unit.
-func New(targets []config.Target) (*Scheduler, error) {
-	total := 0
-	for _, target := range targets {
-		if target.Project == "" || target.Zone == "" || target.Capacity <= 0 {
-			return nil, fmt.Errorf("invalid scheduler target: %+v", target)
-		}
-		total += target.Capacity
+// New creates a scheduler with the specified capacity limit.
+func New(capacity int) (*Scheduler, error) {
+	if capacity <= 0 {
+		return nil, fmt.Errorf("scheduler capacity must be positive, got %d", capacity)
 	}
-	if total == 0 {
-		return nil, fmt.Errorf("scheduler has no capacity")
+	tokens := make(chan struct{}, capacity)
+	for range capacity {
+		tokens <- struct{}{}
 	}
-	available := make(chan config.Target, total)
-	for _, target := range targets {
-		for i := 0; i < target.Capacity; i++ {
-			available <- target
-		}
-	}
-	return &Scheduler{available: available}, nil
+	return &Scheduler{tokens: tokens}, nil
 }
 
-// Lease is an exclusive capacity token. Release is idempotent.
+// Lease represents an acquired concurrency token.
 type Lease struct {
-	Target  config.Target
 	release func()
 	once    sync.Once
 }
 
-// Release returns capacity to the scheduler.
+// Release returns capacity to the scheduler idempotently.
 func (l *Lease) Release() {
 	if l == nil {
 		return
@@ -50,16 +52,15 @@ func (l *Lease) Release() {
 	l.once.Do(l.release)
 }
 
-// Acquire waits for capacity or returns the caller's cancellation cause.
+// Acquire waits for an available capacity slot or returns when context is cancelled.
 func (s *Scheduler) Acquire(ctx context.Context) (*Lease, error) {
 	select {
 	case <-ctx.Done():
-		return nil, fmt.Errorf("acquire project/zone lease: %w", context.Cause(ctx))
-	case target := <-s.available:
+		return nil, fmt.Errorf("acquire capacity lease: %w", ctx.Err())
+	case <-s.tokens:
 		return &Lease{
-			Target: target,
 			release: func() {
-				s.available <- target
+				s.tokens <- struct{}{}
 			},
 		}, nil
 	}
